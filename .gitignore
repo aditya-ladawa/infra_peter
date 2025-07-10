@@ -1,0 +1,104 @@
+
+*.egg-info
+*.pyc
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.env
+myenv/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Logs
+*.log
+logs/
+
+# Local development
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Dependencies
+node_modules/
+
+# LangGraph specific
+.langgraph/
+
+# Temporary files
+tmp/
+temp/
+
+.langgraph_api
+
+# for temp basis
+tests/
+
+# big files
+files/
+
+
+# my tokens
+token.json
+google_client_secret.com.json
+
+RESOURCES/
+
+examples/
+
+
+temp_webms/
+webms_test/
+test_imgs/
+ops/
+
+
+CLAUDE.md
+
+#extras py
+src/open_deep_research/anim.ipynb
+src/open_deep_research/asset_creator.py
+src/open_deep_research/extras.ipynb
+src/open_deep_research/test_anims.ipynb
+
+
+src/open_deep_research/mcdc.md
+
