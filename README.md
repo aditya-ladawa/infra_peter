@@ -2,17 +2,16 @@
 
 This project automates the process of creating Instagram Reels by breaking down complex technical topics (like backend infrastructure) into engaging, digestible short videos. The pipeline was originally based on the open-source [Open Deep Researcher](https://github.com/langchain-ai/open_deep_research) and re-engineered with **LangGraph**, Python logic, and agent-based workflows to automate everything—from data retrieval to posting the final video.
 
-## Creates  in <20 mins (↓ from 6+ hrs) at <$0.20/video. Consistently post tech-related content, reaching ~5.5K followers and over 450K total views.
+## Creates in <20 mins (↓ from 6+ hrs) at <$0.20/video. Consistently post tech-related content, reaching ~5.5K followers and over 450K total views.
 
 ---
 
 ### Sample Reel
 Check out a sample Instagram Reel created by this pipeline:
 
-[![Sample Reel](https://img.youtube.com/vi/YokpEpbh5Fo/maxresdefault.jpg)](https://youtube.com/shorts/YokpEpbh5Fo?feature=share)
+[![Sample Reel](https://img.youtube.com/vi/YokpEpbh5Fo/maxresdefault.jpg)](https://www.youtube.com/watch?v=YokpEpbh5Fo&autoplay=1)
 
 ---
-
 ### Live Automation in Action
 
 - **Instagram Channels**
