@@ -9,6 +9,7 @@ This project automates the process of creating Instagram Reels by breaking down 
 ### Sample Reel
 Check out a sample Instagram Reel created by this pipeline:
 
+Click on the below image, or follow this link: https://youtu.be/YokpEpbh5Fo?si=fbqV8jEClVYlnbYR
 
 [![Watch the video](assets/THUMBNAIL_why_uber_ditched_postgres_at_scale.png)](https://youtu.be/YokpEpbh5Fo?si=fbqV8jEClVYlnbYR)
 
