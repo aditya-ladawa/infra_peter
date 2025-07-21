@@ -214,24 +214,8 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     return {"sections": sections}
 
 def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Literal["generate_report_plan","build_section_with_web_research"]]:
-    """Get human feedback on the report plan and route to next steps.
-    
-    This node:
-    1. Formats the current report plan for human review
-    2. Gets feedback via an interrupt
-    3. Routes to either:
-       - Section writing if plan is approved
-       - Plan regeneration if feedback is provided
-    
-    Args:
-        state: Current graph state with sections to review
-        config: Configuration for the workflow
-        
-    Returns:
-        Command to either regenerate plan or start section writing
-    """
+    """Get human feedback on the report plan and route to next steps."""
 
-    # Get sections
     topic = state["topic"]
     sections = state['sections']
     sections_str = "\n\n".join(
@@ -241,30 +225,36 @@ def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Litera
         for section in sections
     )
 
-    # Get feedback on the report plan from interrupt
     interrupt_message = f"""Please provide feedback on the following report plan. 
                         \n\n{sections_str}\n
                         \nDoes the report plan meet your needs?\nPass 'true' to approve the report plan.\nOr, provide feedback to regenerate the report plan:"""
     
     feedback = interrupt(interrupt_message)
-
-    # If the user approves the report plan, kick off section writing
+    # Handle dict type returned from interrupt
+    if isinstance(feedback, dict):
+        # Extract the boolean or string value from the dict
+        feedback_value = next(iter(feedback.values()))
+        if feedback_value is True:
+            return Command(goto=[
+                Send("build_section_with_web_research", {"topic": topic, "section": s, "search_iterations": 0})
+                for s in sections if s.research
+            ])
+        elif isinstance(feedback_value, str):
+            return Command(goto="generate_report_plan", update={"feedback_on_report_plan": [feedback_value]})
+        else:
+            raise TypeError(f"Interrupt dict feedback value type {type(feedback_value)} is not supported.")
+    
     if isinstance(feedback, bool) and feedback is True:
-        # Treat this as approve and kick off section writing
         return Command(goto=[
             Send("build_section_with_web_research", {"topic": topic, "section": s, "search_iterations": 0}) 
-            for s in sections 
-            if s.research
+            for s in sections if s.research
         ])
     
-    # If the user provides feedback, regenerate the report plan 
-    elif isinstance(feedback, str):
-        # Treat this as feedback and append it to the existing list
-        return Command(goto="generate_report_plan", 
-                       update={"feedback_on_report_plan": [feedback]})
-    else:
-        raise TypeError(f"Interrupt value of type {type(feedback)} is not supported.")
+    if isinstance(feedback, str):
+        return Command(goto="generate_report_plan", update={"feedback_on_report_plan": [feedback]})
     
+    raise TypeError(f"Interrupt value of type {type(feedback)} is not supported.")
+
 async def generate_queries(state: SectionState, config: RunnableConfig):
     """Generate search queries for researching a specific section.
     
@@ -570,14 +560,18 @@ async def script_generator(state: ScriptState, config: RunnableConfig) -> Script
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.5) 
+    # writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.2) 
+    writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
+
     structured_llm = writer_model.with_structured_output(Queries)
 
     # Prompts
     system_template = configurable.script_gen_system_prompt
     human_template = """
-    Important instruction: Rewrite the give give topic title under 4 words.
-    Topic:\n{topic}\n\nKey Insights:\n{final_report}
+    Important: Rewrite the provided topic to a 4-word max title.
+
+    Generate a reel script on the topic below:\n\n{topic}\n\n
+    Use this detailed report as your source:\n\n{final_report}
     """
 
     chat_prompt = ChatPromptTemplate.from_messages([
@@ -649,14 +643,22 @@ def format_image_options(images: List[Dict[str, Any]]) -> str:
         f"- [{i}] {img['description'] or 'No description'}\n  URL: {img['url']}" for i, img in enumerate(images)
     ])
 
-async def tavily_image_search(query: str) -> List[TavilyImageResult]:
+async def tavily_image_search(query: str) -> List[Dict[str, Any]]:
     search_tool = TavilySearch(max_results=5, include_images=True, include_image_descriptions=True)
 
-    # Perform a search query
-    results = await search_tool.ainvoke({'query': query})
+    raw_results = await search_tool.ainvoke({'query': query})
 
-    images = results.get('images', [])
-    return images
+    # Fix: decode stringified JSON if needed
+    if isinstance(raw_results, str):
+        try:
+            results = json.loads(raw_results)
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse Tavily result: {e}")
+            return []
+    else:
+        results = raw_results
+
+    return results.get('images', [])
 
 
 # Helper: Resize non-GIF images
@@ -760,6 +762,8 @@ async def decide_images(state: ScriptState, config: RunnableConfig) -> ScriptSta
                 Please provide a refined or alternative search query to find a suitable image for the following dialogue line:
                 "{line['text']}"
                 Speaker: {line['speaker']}
+
+                IMPORTANT: STRICTLY OUTPUT THE SEARCH QUERY STRING. NOTHING ELSE
                 """
                 new_search_query = await writer_model.ainvoke(retry_prompt)
                 new_search_query = new_search_query.content.strip()
@@ -1082,7 +1086,15 @@ def mutate_gif_dims(gif_file, h, w, padding):
 
 
 async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
-    SLIDE_DURATION = 0.15  # seconds for slide-in animation
+    import os, random
+    import ffmpeg
+
+    SLIDE_DURATION = 0.15
+    VIDEO_WIDTH = 1080
+    VIDEO_HEIGHT = 1920
+    CHAR_IMG_HEIGHT = 750
+    CHAR_IMG_Y = VIDEO_HEIGHT - CHAR_IMG_HEIGHT - 50
+    HALF_SCREEN_X = 300
 
     script_path = state['script_output_dir_path']
     dialogues = state['audio_dialogues']
@@ -1090,194 +1102,139 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
     topic_slug = state['topic']
     audio_file = state['combined_audio_path']
 
-    # Constants
     GAMEPLAY_DIR = "src/open_deep_research/RESOURCES/GAME_PLAYS"
     CHAR_IMG_DIR = "src/open_deep_research/RESOURCES/CHAR_IMGS"
-    VIDEO_WIDTH = 1080
-    VIDEO_HEIGHT = 1920
-    CHAR_IMG_HEIGHT = 700  # scale character images height
-    CHAR_IMG_Y = VIDEO_HEIGHT - CHAR_IMG_HEIGHT - 50  # Y position near bottom
-    HALF_SCREEN_X = 300  # 540 approx center horizontally
-    SLIDE_DURATION = 0.15  # seconds for slide-in animation
 
     out_dir = os.path.join(script_path, 'videos')
     os.makedirs(out_dir, exist_ok=True)
 
-    # Choose random gameplay background video
     vids = [os.path.join(GAMEPLAY_DIR, f) for f in os.listdir(GAMEPLAY_DIR)
             if f.lower().endswith(('.mp4', '.mov', '.webm'))]
     if not vids:
         raise FileNotFoundError("No gameplay videos found.")
     bg = random.choice(vids)
-    info = ffmpeg.probe(bg)
-    bg_duration = float(info['format']['duration'])
-    if bg_duration < duration:
+    if float(ffmpeg.probe(bg)['format']['duration']) < duration:
         raise ValueError("Background video too short.")
 
     gameplay = ffmpeg.input(bg, ss=0, t=duration)
-    background = (
+    current_video = (
         gameplay.video
         .filter('scale', VIDEO_WIDTH, VIDEO_HEIGHT, force_original_aspect_ratio='increase')
         .filter('crop', VIDEO_WIDTH, VIDEO_HEIGHT)
     )
-    current_video = background
 
-    # Pre-clone character images based on dialogues to allow multiple overlays
+    # Pre-clone character images
     img_counts = {}
     for dlg in dialogues:
-        img_name = dlg.get('speaker_img')
-        img_char = dlg.get('speaker')
-        if img_name and img_char:
-            img_path = os.path.join(CHAR_IMG_DIR, img_char.lower(), img_name)
-            img_counts[img_path] = img_counts.get(img_path, 0) + 1
+        img = dlg.get('speaker_img')
+        char = dlg.get('speaker')
+        if img and char:
+            path = os.path.join(CHAR_IMG_DIR, char.lower(), img)
+            img_counts[path] = img_counts.get(path, 0) + 1
 
-    # Load and clone character images
     char_img_clones = {}
-    for img_path, count in img_counts.items():
-        if not os.path.isfile(img_path):
-            raise FileNotFoundError(f"Character image not found: {img_path}")
+    for path, count in img_counts.items():
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Character image not found: {path}")
+        inp = ffmpeg.input(path)
+        scaled = inp.video.filter('scale', -1, CHAR_IMG_HEIGHT)
+        char_img_clones[path] = scaled.filter_multi_output('split', count)
+    char_img_idx = {p: 0 for p in char_img_clones}
 
-        img_input = ffmpeg.input(img_path)
+    # Pre-clone MOV and GIF overlays
+    anim_counts = {}
+    for dlg in dialogues:
+        mp = dlg.get('mov_path')
+        if mp and mp.lower().endswith(('.mov', '.gif')):
+            path = mp
+            if path.lower().endswith('.gif'):
+                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * 0.4), VIDEO_WIDTH, 0.01)
+            anim_counts[path] = anim_counts.get(path, 0) + 1
 
-        # Determine width override
-        img_file = os.path.basename(img_path).lower()
-        if 'peter.png' in img_file:
-            scaled = img_input.video.filter('scale', 850, -1)
-        elif 'stewie.png' in img_file:
-            scaled = img_input.video.filter('scale', 600, -1)
-        else:
-            # Default scaling by height if width not specified
-            scaled = img_input.video.filter('scale', -1, CHAR_IMG_HEIGHT)
+    anim_clones = {}
+    anim_idx = {}
+    for path, count in anim_counts.items():
+        inp = ffmpeg.input(path)
+        if path.lower().endswith('.mov'):
+            stream = (
+                inp.video
+                .filter('format', 'yuva420p')
+                .filter('scale', VIDEO_WIDTH, VIDEO_HEIGHT, force_original_aspect_ratio='increase')
+                .filter('crop', VIDEO_WIDTH, VIDEO_HEIGHT)
+            )
+        else:  # GIF
+            stream = (
+                inp.video.filter('format', 'yuva420p')
+                          .filter('loop', loop=-1, size=32767)
+            )
+        anim_clones[path] = stream.filter_multi_output('split', count)
+        anim_idx[path] = 0
 
-        clones = scaled.filter_multi_output('split', count)
-        char_img_clones[img_path] = clones
+    for dlg in dialogues:
+        mp = dlg.get('mov_path')
+        img_name = dlg.get('speaker_img')
+        char = dlg.get('speaker')
+        start = dlg['start']
+        dur = dlg['duration']
+        end_anim = min(start + min(7, dur), duration)
+        end_char = min(start + dur, duration)
 
-    img_overlay_index = {img_path: 0 for img_path in img_counts.keys()}
+        # Overlay animation (MOV or GIF)
+        overlay_vid = None
+        if mp:
+            path = mp
+            if mp.lower().endswith('.gif'):
+                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * 0.4), VIDEO_WIDTH, 0.01)
+            clones = anim_clones.get(path)
+            idx = anim_idx.get(path, 0)
+            if clones:
+                base = clones[idx]
+                anim_idx[path] += 1
+                delay = 0.5
+                anim_start = start + delay
+                overlay_vid = base.filter('setpts', f'PTS-STARTPTS+{anim_start}/TB')
 
-    print(f"Processing {len(dialogues)} dialogues for overlays...")
+        if overlay_vid:
+            current_video = ffmpeg.overlay(
+                current_video, overlay_vid,
+                x=0, y=0,
+                enable=f'between(t,{anim_start},{end_anim})'
+            )
 
-    for i, dialogue in enumerate(dialogues):
-        mov_path = dialogue.get('mov_path')
-        speaker_img_name = dialogue.get('speaker_img')
-        img_char = dialogue.get('speaker')
-        overlay_start = dialogue['start']
-        overlay_duration = dialogue['duration']
-
-        # Separate overlay end times
-        overlay_end_anim = overlay_start + min(7, overlay_duration)
-        if overlay_end_anim > duration:
-            overlay_end_anim = duration
-
-        overlay_end_char = overlay_start + overlay_duration
-        if overlay_end_char > duration:
-            overlay_end_char = duration
-
-        # 1) Overlay mov/gif animation if present
-        if mov_path:
-            print(f"Processing overlay {i+1}: {mov_path}")
-            overlay_input = ffmpeg.input(mov_path)
-
-            delay = 0.5
-            anim_start = overlay_start + delay
-            max_anim_duration = max(0, overlay_duration - delay)
-            anim_end = anim_start + min(7, max_anim_duration)
-            if anim_end > duration:
-                anim_end = duration
-
-            is_mov = mov_path.lower().endswith('.mov')
-            is_gif = mov_path.lower().endswith('.gif')
-
-            if is_mov:
-                overlay_video = (
-                    overlay_input.video
-                    .filter('format', 'yuva420p')
-                    .filter('scale', VIDEO_WIDTH, VIDEO_HEIGHT, force_original_aspect_ratio='increase')
-                    .filter('crop', VIDEO_WIDTH, VIDEO_HEIGHT)
-                    .filter('setpts', f'PTS-STARTPTS+{anim_start}/TB')
+        # Overlay character image
+        if img_name and char:
+            path = os.path.join(CHAR_IMG_DIR, char.lower(), img_name)
+            clones = char_img_clones.get(path)
+            idx = char_img_idx.get(path, 0)
+            if clones:
+                clip = clones[idx]
+                char_img_idx[path] += 1
+                slide_x = HALF_SCREEN_X
+                start_x = VIDEO_WIDTH if char.lower() == 'peter' else -VIDEO_WIDTH
+                xexp = (
+                    f"if(between(t,{start},{start+SLIDE_DURATION}),"
+                    f"{start_x} + ({slide_x}-{start_x})*(t-{start})/{SLIDE_DURATION},"
+                    f"{slide_x})"
                 )
-            elif is_gif:
-                overlay_height = int(VIDEO_HEIGHT * 0.4)
-                mutated_gif_path = mutate_gif_dims(mov_path, overlay_height, VIDEO_WIDTH, 0.01)
-                print(f"  Mutated GIF saved to: {mutated_gif_path}")
-                mutated_overlay_input = ffmpeg.input(mutated_gif_path)
-
-                overlay_video = (
-                    mutated_overlay_input.video
-                    .filter('format', 'yuva420p')
-                    .filter('loop', loop=-1, size=32767)
-                    .filter('setpts', f'PTS-STARTPTS+{anim_start}/TB')
-                )
-            else:
-                print(f"Unsupported overlay file type for overlay {i+1}, skipping.")
-                overlay_video = None
-
-            if overlay_video:
+                img_clip = clip.filter('setpts', f'PTS-STARTPTS+{start}/TB')
                 current_video = ffmpeg.overlay(
-                    current_video,
-                    overlay_video,
-                    x=0,
-                    y=0,
-                    enable=f'between(t,{anim_start},{anim_end})'
+                    current_video, img_clip,
+                    x=xexp, y=CHAR_IMG_Y,
+                    enable=f'between(t,{start},{end_char})'
                 )
-                print(f"Applied animation overlay {i+1} with 0.5s delay.")
-
-
-        # 2) Overlay character image with slide-in animation stopping at half screen width
-        if speaker_img_name and img_char:
-            char_img_path = os.path.join(CHAR_IMG_DIR, img_char.lower(), speaker_img_name)
-            if char_img_path in char_img_clones:
-                clone_idx = img_overlay_index[char_img_path]
-                overlay_img = char_img_clones[char_img_path][clone_idx]
-                img_overlay_index[char_img_path] += 1
-
-                slide_end_x = HALF_SCREEN_X
-
-                if img_char.lower() == 'peter':
-                    start_x = VIDEO_WIDTH  # offscreen right
-                elif img_char.lower() == 'stewie':
-                    start_x = -VIDEO_WIDTH  # offscreen left approx width
-                else:
-                    start_x = slide_end_x
-
-                x_expr = (
-                    f"if(between(t,{overlay_start},{overlay_start + SLIDE_DURATION}),"
-                    f"{start_x} + ({slide_end_x} - {start_x})*(t-{overlay_start})/{SLIDE_DURATION},"
-                    f"{slide_end_x})"
-                )
-
-                overlay_img = overlay_img.filter('setpts', f'PTS-STARTPTS+{overlay_start}/TB')
-
-                current_video = ffmpeg.overlay(
-                    current_video,
-                    overlay_img,
-                    x=x_expr,
-                    y=CHAR_IMG_Y,
-                    enable=f'between(t,{overlay_start},{overlay_end_char})'
-                )
-                print(f"Applied character image overlay with slide-in till half screen for dialogue {i+1}.")
-
-    print(f"Total overlays processed: {len([d for d in dialogues if d.get('mov_path')])}")
 
     main_audio = ffmpeg.input(audio_file).audio
-
-    output_path = os.path.join(out_dir, f'{topic_slug}_final.mp4')
-
+    out_path = os.path.join(out_dir, f"{topic_slug}_final.mp4")
     out = ffmpeg.output(
-        current_video,
-        main_audio,
-        output_path,
-        vcodec='libx264',
-        acodec='aac',
-        crf=18,
-        preset='medium',
-        pix_fmt='yuv420p',
-        t=duration
+        current_video, main_audio, out_path,
+        vcodec='libx264', acodec='aac', crf=18,
+        preset='fast', pix_fmt='yuv420p', t=duration
     )
 
     ffmpeg.run(out, overwrite_output=True)
+    state['video_path'] = out_path
+    return {'video_path': out_path}
 
-    state['video_path'] = output_path
-    return {'video_path': output_path}
 
 
 async def generate_subtitles(state: ScriptState) -> ScriptState:
@@ -1503,7 +1460,10 @@ async def generate_thumbnail(state: ScriptState, config: RunnableConfig) -> Scri
         Strictly return the search query only.
     """
 
-    search_query = (await writer_model.ainvoke(query_prompt)).content
+    class RetryThumbnailSearchQuery(TypedDict):
+        query: str
+
+    search_query = (await writer_model.with_structured_output(RetryThumbnailSearchQuery).ainvoke(query_prompt))['query']
 
     async def get_best_image(query, retries=2):
         for attempt in range(retries + 1):
@@ -1573,9 +1533,9 @@ async def generate_thumbnail(state: ScriptState, config: RunnableConfig) -> Scri
     y_start = int((thumb_h - total_h) // 2 + thumb_h * 0.05)
 
     # Caption color and border
-    CAPTIONS_TEXT_COLOR = (173, 216, 230, 255)  # Light blue
-    CAPTIONS_BORDER_COLOR = (0, 0, 0, 255)      # Black
-    BORDER_THICKNESS = 8
+    CAPTIONS_TEXT_COLOR = (153, 255, 204, 255)
+    CAPTIONS_BORDER_COLOR = (0, 0, 0, 255)
+    BORDER_THICKNESS = 10
 
     emoji_source = GoogleEmojiSource()
     with Pilmoji(text_layer, source=emoji_source) as pilmoji:

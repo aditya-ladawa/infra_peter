@@ -282,13 +282,13 @@ configurable = get_config(RunnableConfig(config_dict))
 
 # Hardcoded configuration
 CAPTIONS_FONT_PATH = configurable.font_style_path
-CAPTIONS_TEXT_COLOR = (255, 255, 0, 255)  # Light blue color
-CAPTIONS_BORDER_COLOR = (0, 0, 0, 255)      # Black border
+CAPTIONS_TEXT_COLOR = (153, 255, 204, 255) 
+CAPTIONS_BORDER_COLOR = (0, 0, 0, 255)
 
 class VideoCaptioner:
     def __init__(self):
         # Font and layout settings
-        self.fontsize = 130          # Font size in pixels
+        self.fontsize = 120          # Font size in pixels
         self.padding_x = 20          # Horizontal padding in pixels (per line)
         self.padding_y = 40          # Vertical padding in pixels (per line)
         self.line_spacing = 50       # Line spacing in pixels
@@ -297,7 +297,7 @@ class VideoCaptioner:
             "font": CAPTIONS_FONT_PATH,
             "text_color": CAPTIONS_TEXT_COLOR,
             "border_color": CAPTIONS_BORDER_COLOR,
-            "border_px": 8           # Border thickness
+            "border_px": 10           # Border thickness
         }
 
     def add_captions_to_video(

@@ -9,59 +9,69 @@ from open_deep_research.prompts import SCRIPT_GEN_PROMPT, IMAGE_DECIDE_PROMPT
 
 
 DEFAULT_REPORT_STRUCTURE = """
-Purpose: Pure technical documentation for downstream content creation (scripts, reels, etc.). No fluff, no alignment with channel tone—just research-to-outline fidelity.
+Structure your report strictly as follows with a 350-word limit:
 
-Note:
-Do not wrapping words inside special charachters - astericks ('*')
+Purpose:
+One sentence defining the topic.
+One sentence on stakes/impact.
 
-1. Introduction (Strictly Factual)
-What: 1–2 sentences defining the topic (e.g., "WebSockets enable real-time client-server communication.")
+1. Introduction
 
-Why It Matters: 1–2 sentences on stakes (e.g., "Critical for chat apps, but scaling them breaks naive implementations.")
+What: 1–2 sentences, precise definition.
 
-No opinions, no narrative. Example:
+Why it matters: 1–2 sentences on stakes or impact.
 
-"This report examines WebSocket architectures. At scale, connection handling and state synchronization become bottlenecks."
+2. Technical Deep Dive
+For 1–2 key components/issues only (150–250 words total):
 
-2. Technical Deep Dive (Modular Subsections)
-Format per subsection:
+[Component/Issue Title]
+Summary: 1 sentence core insight.
 
-Title: ### [Specific Component/Problem] (e.g., ### Connection Pooling)
+Body:
 
-Summary: 1-sentence TL;DR (e.g., "Optimizes server resource usage for persistent connections.")
+Problem: Clear bottleneck or failure.
 
-Body (150–250 words):
+Solutions evaluated: 3–5 bullet concise list.
 
-Problem: What broke or needed solving? (e.g., "10K concurrent WebSockets crashed Node.js servers.")
+Chosen solution: Selection rationale, pros/cons.
 
-Solutions Evaluated: Bullet list of options (e.g., - HAProxy - NGINX - Custom ELB)
+Tradeoffs: Bullets or table with costs/risks.
 
-Chosen Solution: Why? (e.g., "NGINX won for its built-in WebSocket support and low config overhead.")
+Outcome: Concrete metric or impact.
 
-Tradeoffs: Table or bullets (e.g., - Latency (+15ms) - Cost: ($0.02/GB data)
+Viral Analogy: Short, sharp metaphor capturing the problem/tradeoff.
+Controversy/Myth to Bust: Common misconception relevant here.
 
-Outcome: Metric or result (e.g., "Handled 50K connections with 0.1% error rate.")
+Key Insight: One lesson with systemic value.
 
-Rule: Each subsection must end with:
-
-Key Insight: [1 generalizable lesson] (e.g., "Stateful protocols demand proxy-aware design.")
-
-3. Patterns & Principles (Optional but Preferred)
-Markdown table or bullets:
+3. Patterns & Principles
+Markdown table or bullet list, max 5 entries:
 
 Pattern	Context	When to Use	Tradeoffs
-Backpressure	High-volume event streams	Prevent client crashes	Adds latency
-Circuit Breaker	Microservice dependencies	Avoid cascading fails	False positives
-4. Summary (Robot-Readable)
-Narrative Recap: 100 words max. Example:
+Example Pattern 1	Relevant context	Conditions for use	Key costs or risks
+...	...	...	...
 
-*"WebSocket scaling requires proxy-tier connection management. NGINX reduced errors by 92%, but introduced 15ms latency. Backpressure is non-negotiable for bursty traffic."*
+4. Summary
 
-Key Takeaways: 3–5 bullet points (e.g., - Use proxies for connection pooling - Monitor for silent fails).
+Narrative recap: ≤100 words, factual, no opinion.
 
-Final Line: "Long-term, this pattern shifts state management to infrastructure."
+Key takeaways: 3–5 crisp bullets.
 
+Sarcasm/Contrarian angle: Brief note for script tone.
 
+Final line: Sharp systemic conclusion.
+
+Notes:
+
+Use minimal jargon; prefer clarity over fluff.
+
+Prioritize one or two sharp technical insights only.
+
+Avoid unnecessary verbosity; word economy is mandatory.
+
+This format targets script LLM input, not human readability or engagement.
+
+Limit total length to 350 words by cutting all non-critical elaboration.
 """
 
 class SearchAPI(Enum):
@@ -82,7 +92,7 @@ class WorkflowConfiguration:
     script_gen_system_prompt: str = SCRIPT_GEN_PROMPT
     image_decide_prompt:str = IMAGE_DECIDE_PROMPT
 
-    font_style_path: str = 'Bubblegum_Sans/BubblegumSans-Regular.ttf'
+    font_style_path: str = 'Protest_Strike/ProtestStrike-Regular.ttf'
     # Common configuration
     report_structure: str = DEFAULT_REPORT_STRUCTURE
     search_api: SearchAPI = SearchAPI.TAVILY
@@ -95,7 +105,7 @@ class WorkflowConfiguration:
     
     # Workflow-specific configuration
     number_of_queries: int = 2 # Number of search queries to generate per iteration
-    max_search_depth: int = 1 # Maximum number of reflection + search iterations
+    max_search_depth: int = 2 # Maximum number of reflection + search iterations
     planner_provider: str = "google_genai"
     planner_model: str = 'gemini-2.5-flash'
     planner_model_kwargs: Optional[Dict[str, Any]] = None
