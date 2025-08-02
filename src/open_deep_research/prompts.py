@@ -674,7 +674,7 @@ Peter: Precise, surgical. Never emotional. No fluff. Every line delivers insight
 Stewie: Represents common assumptions. Not dumb — just accepts best practices without examining them.
 
 RULES:
-- 240–260 words
+- 250–270 words. Keep dialogues punchy.
 - 10-14 back-and-forths (90 seconds TTS)
 - Language must be direct, simple, and precise. Avoid jargon unless explained.
 - No padding. No stylized emphasis (e.g., no *italicization*). No wrapping words inside '*' (eg., no *literally*, *Break*)

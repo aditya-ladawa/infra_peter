@@ -113,6 +113,8 @@ from faster_whisper import WhisperModel
 
 
 ## Nodes -- 
+SCREEN_COVERAGE = 0.5
+
 
 async def generate_report_plan(state: ReportState, config: RunnableConfig):
     """Generate the initial report plan with sections.
@@ -157,6 +159,7 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
     writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0) 
+
     structured_llm = writer_model.with_structured_output(Queries)
 
     # Format system instructions
@@ -560,8 +563,8 @@ async def script_generator(state: ScriptState, config: RunnableConfig) -> Script
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    # writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.2) 
-    writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
+    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.3) 
+    # writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
 
     structured_llm = writer_model.with_structured_output(Queries)
 
@@ -703,7 +706,8 @@ async def decide_images(state: ScriptState, config: RunnableConfig) -> ScriptSta
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0)
+    # writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0)
+    writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
 
     async def download_image(url: str, dest_path: Path):
         async with aiohttp.ClientSession() as session:
@@ -802,7 +806,7 @@ async def create_movs(state: ScriptState) -> ScriptState:
     MOV_DIR = os.path.join(script_path, "fx_movs")
     os.makedirs(MOV_DIR, exist_ok=True)
 
-    anim = Animations(output_path=MOV_DIR, illustration_height_percent=0.4, padding_percent=0.01)
+    anim = Animations(output_path=MOV_DIR, illustration_height_percent=SCREEN_COVERAGE, padding_percent=0.05)
 
     fx_defs = [
         {"animation": "bubble_pop",              "duration": 0.15, "sfx": "pop1",        "function": anim.bubble_pop},
@@ -1096,11 +1100,22 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
     CHAR_IMG_Y = VIDEO_HEIGHT - CHAR_IMG_HEIGHT - 50
     HALF_SCREEN_X = 300
 
+
+
     script_path = state['script_output_dir_path']
-    dialogues = state['audio_dialogues']
+
+    # Load script.json and extract dialogues
+    script_json_path = os.path.join(script_path, "script.json")
+    with open(script_json_path, 'r') as f:
+        script_data = json.load(f)
+    dialogues = script_data['audio_dialogues']
+
+
+    # dialogues = state['audio_dialogues']
     duration = state['complete_duration']
     topic_slug = state['topic']
     audio_file = state['combined_audio_path']
+
 
     GAMEPLAY_DIR = "src/open_deep_research/RESOURCES/GAME_PLAYS"
     CHAR_IMG_DIR = "src/open_deep_research/RESOURCES/CHAR_IMGS"
@@ -1122,6 +1137,7 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
         .filter('scale', VIDEO_WIDTH, VIDEO_HEIGHT, force_original_aspect_ratio='increase')
         .filter('crop', VIDEO_WIDTH, VIDEO_HEIGHT)
     )
+
 
     # Pre-clone character images
     img_counts = {}
@@ -1148,7 +1164,7 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
         if mp and mp.lower().endswith(('.mov', '.gif')):
             path = mp
             if path.lower().endswith('.gif'):
-                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * 0.4), VIDEO_WIDTH, 0.01)
+                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * SCREEN_COVERAGE), VIDEO_WIDTH, 0.01)
             anim_counts[path] = anim_counts.get(path, 0) + 1
 
     anim_clones = {}
@@ -1184,7 +1200,7 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
         if mp:
             path = mp
             if mp.lower().endswith('.gif'):
-                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * 0.4), VIDEO_WIDTH, 0.01)
+                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * SCREEN_COVERAGE), VIDEO_WIDTH, 0.01)
             clones = anim_clones.get(path)
             idx = anim_idx.get(path, 0)
             if clones:
@@ -1334,11 +1350,9 @@ async def generate_instagram_reel_metadata(state: ScriptState, config: RunnableC
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
     
-    writer_model = init_chat_model(
-        model=writer_model_name,
-        model_provider=writer_provider,
-        model_kwargs=writer_model_kwargs
-    )
+    # writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
+    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.15) 
+
 
     prompt_template = ChatPromptTemplate.from_messages([
         ("human", """
@@ -1410,16 +1424,18 @@ def add_text_effects(base_img, text_img, x, y, border=2, shadow_offset=(4, 4)):
 
 
 async def download_image(url):
+    print(f"Downloading image from: {url}")
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url, timeout=10) as response:
                 content_type = response.headers.get('Content-Type', '')
+                print(f"Content-Type: {content_type}")
                 if not content_type.startswith('image/'):
                     raise ValueError(f"URL did not return an image. Content-Type: {content_type}")
                 data = await response.read()
                 return Image.open(BytesIO(data)).convert("RGBA")
-        except (aiohttp.ClientError, UnidentifiedImageError, ValueError) as e:
-            logger.error(f"Failed to download or identify image from {url}: {e}")
+        except Exception as e:
+            print(f"Failed to download or identify image from {url}: {e}")
             raise
 
 
@@ -1430,11 +1446,9 @@ async def generate_thumbnail(state: ScriptState, config: RunnableConfig) -> Scri
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
 
-    writer_model = init_chat_model(
-        model=writer_model_name,
-        model_provider=writer_provider,
-        model_kwargs=writer_model_kwargs
-    )
+    # writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
+    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.15) 
+
 
     title = state["video_metadata"]["title"]
     description = state["video_metadata"]["description"]
@@ -1473,7 +1487,7 @@ async def generate_thumbnail(state: ScriptState, config: RunnableConfig) -> Scri
             if attempt < retries:
                 # Rewriting search query using writer model
                 feedback = f"The query '{query}' returned no useful images. Suggest a better one."
-                query = (await writer_model.ainvoke(feedback)).content
+                query = (await writer_model.with_structured_output(RetryThumbnailSearchQuery).ainvoke(feedback))['query']
         return None
 
     images = await get_best_image(search_query)
@@ -1481,6 +1495,7 @@ async def generate_thumbnail(state: ScriptState, config: RunnableConfig) -> Scri
     if not images:
         raise RuntimeError("No images found for thumbnail generation.")
     best = await choose_best_image(writer_model, images)
+    # best= images[4]
 
     overlay = await download_image(best['url'])
     overlay = add_white_background(overlay, padding=0)

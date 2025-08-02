@@ -82,7 +82,7 @@ class DialogueLine(TypedDict):
 
         'peter.png'
     ]
-    search_query: Annotated[Optional[str], 'Only filled when a visual aid would genuinely help']
+    search_query: Annotated[Optional[str], 'search query -> string data type or None data type (Not even empty string)']
     text: str
 
 
@@ -130,6 +130,7 @@ class ScriptState(ReportStateOutput, ScriptOutputState):
     combined_audio_path: str
     complete_duration: float
 
+    
     video_path: str
 
     subtitles_path: str

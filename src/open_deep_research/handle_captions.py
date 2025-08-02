@@ -396,7 +396,7 @@ class VideoCaptioner:
             caption_clip
             .with_duration(duration)
             .with_start(start_time)
-            .with_position(('center', int(frame_height * 0.4)))
+            .with_position(('center', int(frame_height * 0.50)))
         )
 
         return caption_clip
