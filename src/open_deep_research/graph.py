@@ -113,7 +113,6 @@ from faster_whisper import WhisperModel
 
 
 ## Nodes -- 
-SCREEN_COVERAGE = 0.5
 
 
 async def generate_report_plan(state: ReportState, config: RunnableConfig):
@@ -176,6 +175,7 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
 
     # Web search
     query_list = [query.search_query for query in results.queries]
+    print(f"\nGenerate report plan search queries: {query_list}\n")
 
     # Search the web with parameters
     source_str = await select_and_execute_search(search_api, query_list, params_to_pass)
@@ -296,6 +296,9 @@ async def generate_queries(state: SectionState, config: RunnableConfig):
     # Generate queries  
     queries = await structured_llm.ainvoke([SystemMessage(content=system_instructions),
                                      HumanMessage(content="Generate search queries on the provided topic.")])
+
+    print(f"\nResearch queries: {queries.queries}\n")
+
 
     return {"search_queries": queries.queries}
 
@@ -540,6 +543,7 @@ def initiate_final_section_writing(state: ReportState):
 
 # My vars
 files_dir = os.path.join('src/open_deep_research/files')
+SCREEN_COVERAGE = 0.5
 
 
 # # Extending nodes
@@ -559,42 +563,101 @@ def sanitize_topic_title(topic: str) -> str:
 async def script_generator(state: ScriptState, config: RunnableConfig) -> ScriptState:
     configurable = WorkflowConfiguration.from_runnable_config(config)
 
-    # Set writer model (model used for query writing)
     writer_provider = get_config_value(configurable.writer_provider)
     writer_model_name = get_config_value(configurable.writer_model)
     writer_model_kwargs = get_config_value(configurable.writer_model_kwargs or {})
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider, model_kwargs=writer_model_kwargs, temperature=0.3) 
-    # writer_model = init_chat_model(model='deepseek-chat', model_provider='deepseek', model_kwargs=writer_model_kwargs, temperature=0.15) 
+    writer_model = init_chat_model(
+        model=writer_model_name, 
+        model_provider=writer_provider, 
+        model_kwargs=writer_model_kwargs, 
+        temperature=0.0
+    )
 
-    structured_llm = writer_model.with_structured_output(Queries)
+    # Get feedback from state
+    feedback_list = state.get("script_feedback", [])
+    feedback_str = " /// ".join(feedback_list) if feedback_list else ""
+
+    dialogues = state.get('dialogues', [])
+
+    script_dialogues = ""
+    for line in dialogues:
+        script_dialogues += f"{line['speaker'].capitalize()}: {line['text']}\n"
+        if line.get('search_query'):
+            script_dialogues += f"(Search query: {line['search_query']})\n"
 
     # Prompts
     system_template = configurable.script_gen_system_prompt
-    human_template = """
-    Important: Rewrite the provided topic to a 4-word max title.
+    human_template = (
+        "Important: Rewrite the provided topic to a 4-word max title.\n"
+        "Generate a reel script on the topic below:\n\n{topic}\n\n"
+        "Use this detailed report as your source:\n\n{final_report}\n\n"
+        "{feedback_block}"
+    )
 
-    Generate a reel script on the topic below:\n\n{topic}\n\n
-    Use this detailed report as your source:\n\n{final_report}
-    """
+    # Add feedback block if feedback exists
+    feedback_block = f"Feedback for improvement: {feedback_str}\n\n Previous script which did not make the cut and needed to be improved was: {script_dialogues}" if feedback_str else ""
+
+    print(feedback_block[:200], '\n')
 
     chat_prompt = ChatPromptTemplate.from_messages([
         ("system", system_template),
         ("human", human_template),
-
     ])
 
     formatted_messages = chat_prompt.format_messages(
         topic=state["topic"],
-        final_report=state["final_report"]
+        final_report=state["final_report"],
+        feedback_block=feedback_block,
     )
 
     script = await writer_model.with_structured_output(ScriptOutputState).ainvoke(formatted_messages)
-
     sanitized_topic = sanitize_topic_title(script['topic'])
     return {"topic": sanitized_topic, "dialogues": script['dialogues']}
 
 
+async def get_script_feedback(state: ScriptState, config: RunnableConfig) -> Command:
+    dialogues = state['dialogues']  # List[DialogueLine]
 
+    script_dialogues = ""
+    for line in dialogues:
+        script_dialogues += f"{line['speaker'].capitalize()}: {line['text']}\n"
+        if line.get('search_query'):
+            script_dialogues += f"(Search query: {line['search_query']})\n"
+
+    interrupt_message = (
+        f"Please provide feedback on the following script.\n\n{script_dialogues}\n\n"
+        "Pass 'true' to approve the script.\n"
+        "Or, provide feedback to regenerate the script:"
+    )
+
+    feedback = interrupt(interrupt_message)
+
+    # Dict handling: user or UI might return feedback as {"value": ...}
+    if isinstance(feedback, dict):
+        feedback_value = next(iter(feedback.values()))
+        if feedback_value is True:
+            return Command(goto="push_for_cloning")
+        elif isinstance(feedback_value, str):
+            # ACCUMULATE feedback
+            return Command(
+                goto="script_generator",
+                update={"script_feedback": state.get("script_feedback", []) + [feedback_value]}
+            )
+        else:
+            raise TypeError(f"Interrupt dict feedback value type {type(feedback_value)} is not supported.")
+
+    # Approve
+    if isinstance(feedback, bool) and feedback is True:
+        return Command(goto="push_for_cloning")
+
+    # Feedback string (single line feedback)
+    if isinstance(feedback, str):
+        return Command(
+            goto="script_generator",
+            update={"script_feedback": state.get("script_feedback", []) + [feedback]}
+        )
+
+    raise TypeError(f"Interrupt value of type {type(feedback)} is not supported.")
 
 async def push_for_cloning(state: ScriptState) -> ScriptState:
 
@@ -806,7 +869,7 @@ async def create_movs(state: ScriptState) -> ScriptState:
     MOV_DIR = os.path.join(script_path, "fx_movs")
     os.makedirs(MOV_DIR, exist_ok=True)
 
-    anim = Animations(output_path=MOV_DIR, illustration_height_percent=SCREEN_COVERAGE, padding_percent=0.05)
+    anim = Animations(output_path=MOV_DIR, illustration_height_percent=SCREEN_COVERAGE, padding_percent=0.02)
 
     fx_defs = [
         {"animation": "bubble_pop",              "duration": 0.15, "sfx": "pop1",        "function": anim.bubble_pop},
@@ -1164,7 +1227,7 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
         if mp and mp.lower().endswith(('.mov', '.gif')):
             path = mp
             if path.lower().endswith('.gif'):
-                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * SCREEN_COVERAGE), VIDEO_WIDTH, 0.01)
+                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * SCREEN_COVERAGE), VIDEO_WIDTH, 0.02)
             anim_counts[path] = anim_counts.get(path, 0) + 1
 
     anim_clones = {}
@@ -1200,7 +1263,7 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
         if mp:
             path = mp
             if mp.lower().endswith('.gif'):
-                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * SCREEN_COVERAGE), VIDEO_WIDTH, 0.01)
+                path = mutate_gif_dims(mp, int(VIDEO_HEIGHT * SCREEN_COVERAGE), VIDEO_WIDTH, 0.02)
             clones = anim_clones.get(path)
             idx = anim_idx.get(path, 0)
             if clones:
@@ -1243,8 +1306,8 @@ async def overlay_anims_and_images(state: ScriptState) -> ScriptState:
     out_path = os.path.join(out_dir, f"{topic_slug}_final.mp4")
     out = ffmpeg.output(
         current_video, main_audio, out_path,
-        vcodec='libx264', acodec='aac', crf=18,
-        preset='fast', pix_fmt='yuv420p', t=duration
+        vcodec='libx264', acodec='aac', crf=21,
+        preset='veryfast', pix_fmt='yuv420p', t=duration
     )
 
     ffmpeg.run(out, overwrite_output=True)
@@ -1640,6 +1703,7 @@ builder.add_edge("write_final_sections", "compile_final_report")
 script_builder = StateGraph(ScriptState, input=ReportStateInput, output=ScriptOutputState, config_schema=WorkflowConfiguration)
 script_builder.add_node('open_deep_researcher', builder.compile())
 script_builder.add_node('script_generator', script_generator)
+script_builder.add_node('get_script_feedback', get_script_feedback)
 script_builder.add_node('push_for_cloning', push_for_cloning)
 script_builder.add_node('decide_images', decide_images)
 script_builder.add_node('create_movs', create_movs)
@@ -1661,7 +1725,7 @@ script_builder.add_node("save_final_state_json", save_final_state_json)
 
 script_builder.add_edge(START, 'open_deep_researcher')
 script_builder.add_edge('open_deep_researcher', 'script_generator')
-script_builder.add_edge('script_generator', 'push_for_cloning')
+script_builder.add_edge('script_generator', 'get_script_feedback')
 script_builder.add_edge('push_for_cloning', 'decide_images')
 script_builder.add_edge('decide_images', 'create_movs')
 script_builder.add_edge('create_movs', 'pull_from_drive')

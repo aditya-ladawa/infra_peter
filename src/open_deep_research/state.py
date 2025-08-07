@@ -89,6 +89,7 @@ class DialogueLine(TypedDict):
 class ScriptOutputState(TypedDict):
     dialogues: List[DialogueLine]
     topic: Annotated[str, 'Topic under 5 words']
+    
 
 
 # # Image
@@ -124,6 +125,8 @@ class BestImageIndex(TypedDict):
 
 class ScriptState(ReportStateOutput, ScriptOutputState):
     script_output_dir_path: str
+
+    script_feedback: Annotated[list[str], operator.add]
     audio_path_base: str
 
     audio_dialogues: List[DialogueLineAudio]

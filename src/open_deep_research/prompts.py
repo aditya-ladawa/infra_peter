@@ -46,13 +46,6 @@ Here is context to use to plan the sections of the report:
 <Task>
 Generate a list of sections for the report. Your plan should be tight and focused with NO overlapping sections or unnecessary filler. 
 
-For example, a good report structure might look like:
-1/ intro
-2/ overview of topic A
-3/ overview of topic B
-4/ comparison between A and B
-5/ conclusion
-
 Each section should have the fields:
 
 - Name - Name for this section of the report.
@@ -98,7 +91,7 @@ The queries should:
 1. Be related to the topic 
 2. Examine different aspects of the topic
 
-Make the queries specific enough to find high-quality, relevant sources.
+Make the queries very specific which targets the core of topic and find high-quality, relevant sources.
 </Task>
 
 <Format>
